@@ -1,41 +1,146 @@
+
 name: vulnsight
 
 services:
+  website:
+    build:
+      context: ./apps/website
+      dockerfile: Dockerfile
+    image: vulnsight-website:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - frontend
+
+  portal:
+    build:
+      context: ./apps/portal
+      dockerfile: Dockerfile
+    image: vulnsight-portal:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      HOSTNAME: 0.0.0.0
+      API_INTERNAL_URL: http://api:8080
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - frontend
+      - backend
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: vulnsight-api:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: redis://redis:6379/0
+      ML_SERVICE_URL: http://ml-service:8000
+      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+
+  ml-service:
+    build:
+      context: ./apps/ml-service
+      dockerfile: Dockerfile
+    image: vulnsight-ml:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      MODEL_DIR: /app/models
+    volumes:
+      - ml_models:/app/models
+    networks:
+      - backend
+
+  worker:
+    build:
+      context: ./apps/worker
+      dockerfile: Dockerfile
+    image: vulnsight-worker:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: redis://redis:6379/0
+      ML_SERVICE_URL: http://ml-service:8000
+      ASSESSMENT_ENABLED: ${ASSESSMENT_ENABLED:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vulnsight}
       POSTGRES_USER: ${POSTGRES_USER:-vulnsight}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - vulnsight_internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - backend
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
     volumes:
       - redis_data:/data
-    networks:
-      - vulnsight_internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backend
 
 networks:
-  vulnsight_internal:
+  frontend:
     driver: bridge
+
+  backend:
+    driver: bridge
+    internal: true
 
 volumes:
   postgres_data:
   redis_data:
+  ml_models:
