@@ -1,0 +1,17 @@
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.3
+
+pandas==3.1.1
+numpy==2.5.4
+scikit-learn==1.9.1
+
+# Database access (only if Python needs direct DB access)
+SQLAlchemy==2.1.8
+psycopg[binary]>=3.2,<4
+
+# Inter-service HTTP client (if needed)
+httpx>=0.28,<1
+
+# Testing
+pytest>=8,<10
